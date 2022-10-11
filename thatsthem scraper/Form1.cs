@@ -174,6 +174,25 @@ namespace thatsthem_scraper
         #endregion
         private async void Start(object sender, EventArgs e)
         {
+            //var urls = File.ReadAllLines(inputI.Text).ToList();
+            //var listes = urls.ChunkBy(1960);
+            //for (int i = 0; i < listes.Count; i++)
+            //{
+            //    File.WriteAllLines($"urls {i+1}.txt", listes[i]);
+            //}
+            //var doc = new HtmlAgilityPack.HtmlDocument();
+            //doc.Load("check valid session.html");
+            //var lookedUpText = doc.DocumentNode?.SelectSingleNode("//i[@data-title='Lookups per day.']/../following-sibling::td")?.InnerText.Trim();
+
+            //var array = lookedUpText.Trim().Replace(" ", "").Split('/');
+            //var lookedUp = int.Parse(array[0]);
+            //if (lookedUp > 0)
+            //{
+            //    doc.Save("check valid session.html");
+            //    Reporter.Error("Session expired (GetCookies func)");
+            //}
+
+
             //var pp = await GetProfile(new Inputs { Url = "https://thatsthem.com/name/Reid-Hines/5730-Rolyat-Rd.-Milton-FL", Cookie = "PHPSESSID=PTYu98TsQ-pimJww5HezoB%2CYNqYhLyaLR9JO2anKkK%2CTF6Hb" }, 0);
             //_profiles = JsonConvert.DeserializeObject<List<Profile>>(File.ReadAllText("profiles.txt"));
             //_profiles.Save($"Saved Profiles after an unexpected{DateTime.Now:dd_MM_yyyy_hh_mm_ss}.xlsx", "sheet1");
@@ -200,12 +219,13 @@ namespace thatsthem_scraper
                     return;
                 }
                 MessageBox.Show("Fatal error: " + ex.ToString() + " Please contact The developper");
+                File.WriteAllText("Error.txt", ex.ToString());
                 if (SaveScrapedData.Checked)
                 {
                     _profiles.Save($"Saved Profiles after an unexpected{DateTime.Now:dd_MM_yyyy_hh_mm_ss}.xlsx", "sheet1");
                     File.WriteAllText("last line we scraped.txt", _profiles.Count + "");
                 }
-                Application.Exit();
+                return;
             }
             _profiles.Save($"Profiles{DateTime.Now:dd_MM_yyyy_hh_mm_ss}.xlsx", "sheet1");
             if (OpenFile.Checked)
@@ -226,6 +246,7 @@ namespace thatsthem_scraper
             }
             startB.Enabled = true;
             OpenFile.Enabled = true;
+            displayT.Text = "Work Done";
         }
 
         private async Task MainWork()
@@ -239,14 +260,16 @@ namespace thatsthem_scraper
             do
             {
                 do
-                {
+                {//session expired
                     session = await CreateSessions();
                     if (session == "ERROR_WRONG_USER_KEY")
                     {
                         throw new Exception("ERROR_WRONG_USER_KEY");
                     }
-                    if (session == "Bad Request" || session == "Service Unavailable" ||
-                        session == "Session expired" || session == "WebException  error")
+                    if (session == "Bad Request" ||
+                        session == "Service Unavailable" ||
+                        session == "session expired" || session.Equals("session expired") ||
+                        session == "WebException  error")
                     {
                         await Task.Delay(1000);
                         continue;
@@ -305,7 +328,13 @@ namespace thatsthem_scraper
                     _count++;
                     continue;
                 }
+                if (profile.Name == "session expired")
+                {
+                    _count = _count - profiles.Count;
+                    return true;
+                }
                 profiles.Add(profile);
+
                 Reporter.Progress(_count, _NumberOfUrls, "Profile scraped");
                 _count++;
             }
@@ -316,7 +345,7 @@ namespace thatsthem_scraper
         private async Task<string> CreateSessions()
         {
             var siteKey = await GetSiteKey();
-            if (siteKey == "Session expired" || siteKey == "WebException  error")
+            if (siteKey == "session expired" || siteKey.Equals("session expired") || siteKey == "WebException  error")
             {
                 return siteKey;
             }
@@ -350,19 +379,32 @@ namespace thatsthem_scraper
             var tries = 1;
             do
             {
-                _json = await _caller.GetHtml(url);
-                if (_json.Contains("502 Bad Gateway"))
+                try
                 {
-                    Reporter.Error("Service respond:\"502 Bad Gateway\" (GetSession func \"while getting the recaptcah reponse\")" + " ==> retried request(s): " + tries);
-                    await Task.Delay(2000);
-                    tries++;
-                    continue;
+                    _json = await _caller.GetHtml(url);
+                    if (_json.Contains("502 Bad Gateway"))
+                    {
+                        Reporter.Error("Service respond:\"502 Bad Gateway\" (GetSession func \"while getting the recaptcah reponse\")" + " ==> retried request(s): " + tries);
+                        await Task.Delay(2000);
+                        tries++;
+                        continue;
+                    }
+                    if (_json.Contains("Service Unavailable"))
+                    {
+                        Reporter.Error("Service Unavailable (GetRecpatchaResponse func)");
+                        await Task.Delay(5000);
+                        return "Service Unavailable";
+                    }
                 }
-                if (_json.Contains("Service Unavailable"))
+                catch (WebException ex)
                 {
-                    Reporter.Error("Service Unavailable (GetRecpatchaResponse func)");
-                    await Task.Delay(5000);
-                    return "Service Unavailable";
+                    Reporter.Error($"web exception in GetRecaptchaId \r\n error: {ex.Message}");
+                    return "WebException  error";
+                }
+                catch (Exception ex)
+                {
+                    Reporter.Error($"unexpected exception in GetRecaptchaId \r\n error: {ex.Message}");
+                    return "Bad Request";
                 }
                 try
                 {
@@ -392,22 +434,35 @@ namespace thatsthem_scraper
             var id = "";
             do
             {
-                _json = await _caller.GetHtml(url);
-                if (_json.Contains("502 Bad Gateway"))
+                try
                 {
-                    Reporter.Error($"Service respond:\"502 Bad Gateway\" (GetSession func \"while getting Id of the captcha\") " + " ==> retried request(s): " + tries);
-                    await Task.Delay(2000);
-                    tries++;
-                    continue;
+                    _json = await _caller.GetHtml(url);
+                    if (_json.Contains("502 Bad Gateway"))
+                    {
+                        Reporter.Error($"Service respond:\"502 Bad Gateway\" (GetSession func \"while getting Id of the captcha\") " + " ==> retried request(s): " + tries);
+                        await Task.Delay(2000);
+                        tries++;
+                        continue;
+                    }
+                    if (_json.Contains("Service Unavailable"))
+                    {
+                        Reporter.Error("Service Unavailable (GetIdRecaptcha func)");
+                        await Task.Delay(5000);
+                        return "Service Unavailable";
+                    }
+                    objt = JObject.Parse(_json);
+                    id = (string)objt.SelectToken("..request");
                 }
-                if (_json.Contains("Service Unavailable"))
+                catch (WebException ex)
                 {
-                    Reporter.Error("Service Unavailable (GetIdRecaptcha func)");
-                    await Task.Delay(5000);
-                    return "Service Unavailable";
+                    Reporter.Error($"web exception in GetRecaptchaId \r\n error: {ex.Message}");
+                    return "WebException  error";
                 }
-                objt = JObject.Parse(_json);
-                id = (string)objt.SelectToken("..request");
+                catch (Exception ex)
+                {
+                    Reporter.Error($"unexpected exception in GetRecaptchaId \r\n error: {ex.Message}");
+                    return "Bad Request";
+                }
                 return id;
             } while (true);
         }
@@ -418,6 +473,7 @@ namespace thatsthem_scraper
             WebProxy proxy = new WebProxy("83.149.70.159:13082");
             var cookies = "";
             string HtmlResult = "";
+            var doc = new HtmlAgilityPack.HtmlDocument();
             try
             {
                 var wc = new WebClientCookieContainer();
@@ -436,20 +492,22 @@ namespace thatsthem_scraper
                     wc.Headers.Set("cache-control", "no-cache");
                     wc.Headers[HttpRequestHeader.ContentType] = "application/x-www-form-urlencoded";
                     HtmlResult = wc.UploadString("https://thatsthem.com/challenge", data);
-
-                    var doc = new HtmlAgilityPack.HtmlDocument();
+                    doc.LoadHtml(HtmlResult);
                     var node = doc.DocumentNode?.SelectNodes("//div[@class='record']");
                     var lookedUpText = doc.DocumentNode?.SelectSingleNode("//i[@data-title='Lookups per day.']/../following-sibling::td")?.InnerText.Trim();
                     if (node == null && lookedUpText != null)
                     {
-                        var array = lookedUpText.Split('/');
+                        var array = lookedUpText.Trim().Replace(" ", "").Split('/');
                         var lookedUp = int.Parse(array[0]);
-                        if (lookedUp == 10)
+                        if (lookedUp > 0)
                         {
+                            doc.Save("check valid session.html");
+                            Reporter.Error("Session expired (GetCookies func)");
                             return "session expired";
                         }
                     }
                 }
+
                 var cookiesBuilder = new StringBuilder();
                 foreach (Cookie cookie in wc.cookies.GetAllCookies())
                 {
@@ -457,19 +515,26 @@ namespace thatsthem_scraper
                 }
                 cookiesBuilder.Length--;
                 cookies = cookiesBuilder.ToString();
+                //Debug.WriteLine(cookies);
             }
             catch (WebException ex)
             {
 
                 if (ex.ToString().Contains("(400) Bad Request"))
                 {
-                    return "Bad Request (GetCookies func)";
+                    Reporter.Error("Bad Request (GetCookies func)");
+                    return "Bad Request";
+                }
+                if (ex.Message.Contains("502"))
+                {
+                    Reporter.Error("Bad Request (GetCookies func)");
+                    return "Bad Request";
                 }
                 await Task.Delay(2000);
             }
             catch (Exception ex)
             {
-                Reporter.Log("unexpected Error (GetCookies func) = " + ex.ToString());
+                Reporter.Error("unexpected Error (GetCookies func) = " + ex.ToString());
                 return "Bad Request";
             }
             Reporter.Log("Obtaining session succeeded");
@@ -478,7 +543,7 @@ namespace thatsthem_scraper
 
         private async Task<string> GetSiteKey()
         {
-            WebProxy proxy = new WebProxy("37.48.118.90:13082");
+            WebProxy proxy = new WebProxy("83.149.70.159:13082");
             var WebExceptionTries = 0;
             do
             {
@@ -497,7 +562,7 @@ namespace thatsthem_scraper
                     {
                         //doc.Save("check La5ra chbih.html");
                         Reporter.Error("Session expired (get sitKey func)");
-                        return "Session expired";
+                        return "session expired";
                     }
                     return sitKey;
                 }
@@ -523,87 +588,102 @@ namespace thatsthem_scraper
         private async Task<Profile> GetProfile(Inputs inputs, int i)
         {
             var profile = new Profile();
-
             var doc = new HtmlAgilityPack.HtmlDocument();
 
-            try
+            do
             {
-                //6c39444004f7f617e848452049be32e5
-                var webClient = new WebClient();
-                //WebProxy proxy = new WebProxy("83.149.70.159:13082");
-                //webClient.Proxy = proxy;
-                webClient.Headers.Set("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/106.0.0.0 Safari/537.36 Edg/106.0.1370.34");
-                webClient.Headers.Set("cookie", inputs.Cookie);
-                //webClient.Proxy = proxy;
-                //Reporter.Error($"request start at {DateTime.Now:hh:mn:ss}");
-                //Reporter.Error($"waiting");
-                var html = webClient.DownloadString(inputs.Url);
-                //Reporter.Error($"get response at {DateTime.Now:hh:mn:ss}");
-                doc.LoadHtml(html);
-            }
-            catch (WebException ex)
-            {
-                await Task.Delay(2000);
-                if (ex.ToString().Contains("(404) Not Found"))
+                try
                 {
-                    return new Profile { Name = "This url not found = " + inputs.Url };
+                    //6c39444004f7f617e848452049be32e5
+                    //83.149.70.159:13082
+                    //37.48.118.90:13082
+                    var webClient = new WebClient();
+                    //WebProxy proxy = new WebProxy("83.149.70.159:13082");
+                    //webClient.Proxy = proxy;
+                    webClient.Headers.Set("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/106.0.0.0 Safari/537.36 Edg/106.0.1370.34");
+                    webClient.Headers.Set("cookie", inputs.Cookie);
+                    //webClient.Proxy = proxy;
+                    //Reporter.Error($"request start at {DateTime.Now:hh:mn:ss}");
+                    //Reporter.Error($"waiting");
+                    var html = webClient.DownloadString(inputs.Url);
+                    //Reporter.Error($"get response at {DateTime.Now:hh:mn:ss}");
+                    doc.LoadHtml(html);
                 }
-                else
+                catch (WebException ex)
                 {
-                    Reporter.Error($"unexpected Error (GetProfile func): {ex.ToString()}");
+                    await Task.Delay(2000);
+                    if (ex.ToString().Contains("(404) Not Found"))
+                    {
+                        return new Profile { Name = "This url not found = " + inputs.Url };
+                    }
+                    else
+                    {
+                        Reporter.Error($"unexpected Error (GetProfile func): {ex.ToString()}");
+                    }
+                    //return new Profile { Name = "session expired" };
                 }
-                //return new Profile { Name = "session expired" };
-            }
-            var node = doc.DocumentNode?.SelectNodes("//div[@class='record']")?.First();
-            if (node == null && !doc.DocumentNode.OuterHtml.Contains("Create Account"))
-            {
-                return null;
-            }
-            if (node == null && doc.DocumentNode.OuterHtml.Contains("Create Account"))
-            {
-                return new Profile { Name = "session expired" };
-            }
+                try
+                {
+                    var node = doc.DocumentNode?.SelectNodes("//div[@class='record']")?.First();
+                    if (node == null && !doc.DocumentNode.OuterHtml.Contains("Create Account"))
+                    {
+                        return null;
+                    }
+                    if (node == null && doc.DocumentNode.OuterHtml.Contains("Create Account"))
+                    {
+                        Reporter.Error("session expired in GetProfile func");
+                        return new Profile { Name = "session expired" };
+                    }
 
-            var name = node.SelectSingleNode(".//div[@class='name']/a")?.InnerText.Trim() ?? "";
-            profile.Name = name;
-            var addsress = node.SelectSingleNode(".//span[@class='street']/..")?.InnerText.Replace("\r\n", " ").Trim() ?? "";
-            if (addsress != "")
-            {
-                RegexOptions options = RegexOptions.None;
-                Regex regex = new Regex("[ ]{2,}", options);
-                addsress = regex.Replace(addsress, " ");
-                profile.Adress = addsress;
-            }
-            var emails = node.SelectNodes(".//div[@class='email']/span");
-            #region Emails
-            if (emails != null)
-            {
-                if (emails.Count == 4)
-                {
-                    profile.Email_1 = emails[0].InnerText;
-                    profile.Email_2 = emails[1].InnerText;
-                    profile.Email_3 = emails[2].InnerText;
-                    profile.Email_4 = emails[3].InnerText;
+                    var name = node.SelectSingleNode(".//div[@class='name']/a")?.InnerText.Trim() ?? "";
+                    profile.Name = name;
+                    var addsress = node.SelectSingleNode(".//span[@class='street']/..")?.InnerText.Replace("\r\n", " ").Trim() ?? "";
+                    if (addsress != "")
+                    {
+                        RegexOptions options = RegexOptions.None;
+                        Regex regex = new Regex("[ ]{2,}", options);
+                        addsress = regex.Replace(addsress, " ");
+                        profile.Adress = addsress;
+                    }
+                    var emails = node.SelectNodes(".//div[@class='email']/span");
+                    #region Emails
+                    if (emails != null)
+                    {
+                        if (emails.Count == 4)
+                        {
+                            profile.Email_1 = emails[0].InnerText;
+                            profile.Email_2 = emails[1].InnerText;
+                            profile.Email_3 = emails[2].InnerText;
+                            profile.Email_4 = emails[3].InnerText;
+                        }
+                        if (emails.Count == 3)
+                        {
+                            profile.Email_1 = emails[0].InnerText;
+                            profile.Email_2 = emails[1].InnerText;
+                            profile.Email_3 = emails[2].InnerText;
+                        }
+                        if (emails.Count == 2)
+                        {
+                            profile.Email_1 = emails[0].InnerText;
+                            profile.Email_2 = emails[1].InnerText;
+                        }
+                        if (emails.Count == 1)
+                        {
+                            profile.Email_1 = emails[0].InnerText;
+                        }
+                    }
+                    #endregion
+                    var age = node.SelectSingleNode(".//div[@class='age']/text()[1]")?.InnerText.Trim() ?? "";
+                    profile.Age = age;
                 }
-                if (emails.Count == 3)
+                catch (Exception ex)
                 {
-                    profile.Email_1 = emails[0].InnerText;
-                    profile.Email_2 = emails[1].InnerText;
-                    profile.Email_3 = emails[2].InnerText;
+                    Reporter.Error(ex.ToString() + " url: " + inputs.Url);
+                    await Task.Delay(1000);
+                    continue;
                 }
-                if (emails.Count == 2)
-                {
-                    profile.Email_1 = emails[0].InnerText;
-                    profile.Email_2 = emails[1].InnerText;
-                }
-                if (emails.Count == 1)
-                {
-                    profile.Email_1 = emails[0].InnerText;
-                }
-            }
-            #endregion
-            var age = node.SelectSingleNode(".//div[@class='age']/text()[1]")?.InnerText.Trim() ?? "";
-            profile.Age = age;
+                break;
+            } while (true);
             return profile;
         }
 
@@ -722,7 +802,7 @@ namespace thatsthem_scraper
             SaveConfig();
             if (_profiles.Count > 0 && _profiles.Count < _urls.Count)
             {
-                _profiles.Save($"Profiles{DateTime.Now:dd_MM_yyyy_hh_mm_ss}.xlsx", "sheet1");
+                //_profiles.Save($"Profiles{DateTime.Now:dd_MM_yyyy_hh_mm_ss}.xlsx", "sheet1");
                 File.WriteAllText("the line of the last url we scraped.txt", _profiles.Count + "");
             }
         }

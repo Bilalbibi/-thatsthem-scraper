@@ -34,6 +34,7 @@ namespace thatsthem_scraper.Models
             {
                 try
                 {
+                    ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls11 | SecurityProtocolType.Tls12| SecurityProtocolType.Tls13;
                     var response = await _httpClient.GetAsync(url);
                     string html = await response.Content.ReadAsStringAsync();
                     return html;
